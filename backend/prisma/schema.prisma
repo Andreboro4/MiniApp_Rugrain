@@ -1,0 +1,338 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Users & Auth
+model User {
+  id          String   @id @default(uuid())
+  maxUserId   String?  @unique // MAX user ID
+  phone       String?  @unique
+  name        String?
+  avatar      String?
+  role        Role     @default(CLIENT)
+  isGuest     Boolean  @default(false)
+  isBlocked   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  orgDetails    OrgDetails?
+  verification  Verification?
+  listings      Listing[]
+  auctions      Auction[]
+  bids          Bid[]
+  erpItems      ErpItem[]
+  requestsSent  Request[] @relation("RequestSender")
+  requestsRecv  Request[] @relation("RequestReceiver")
+  deals         Deal[]
+  favorites     Favorite[]
+  ratingsGiven  Rating[] @relation("RatingGiver")
+  ratingsRecv   Rating[] @relation("RatingReceiver")
+
+  @@map("users")
+}
+
+enum Role {
+  CLIENT
+  ADMIN
+}
+
+// Organization Details (required for trading)
+model OrgDetails {
+  id      String @id @default(uuid())
+  userId  String @unique
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name    String // Название организации *
+  inn     String // ИНН *
+  ogrn    String // ОГРН *
+  address String // Юридический адрес *
+  phone   String // Телефон *
+  email   String // Email *
+
+  bank    String? // Банк
+  rs      String? // Р/с
+  bik     String? // БИК
+  ks      String? // К/с
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("org_details")
+}
+
+// Verification Documents
+model Verification {
+  id        String             @id @default(uuid())
+  userId    String             @unique
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    VerificationStatus @default(NONE)
+  egrulUrl  String? // Ссылка на выписку ЕГРЮЛ
+  passportUrl String? // Ссылка на паспорт
+  selfieUrl String? // Ссылка на фото с паспортом
+  reason    String? // Причина отказа
+  reviewedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("verifications")
+}
+
+enum VerificationStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Listings (fixed price)
+model Listing {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  category    String
+  dealType    DealType    // SELL или BUY
+  volume      Int         // Объём в тоннах
+  price       Int         // Цена за тонну
+  unit        String      @default("т")
+  region      String
+  shipAddress String      // Адрес отгрузки
+  incoterm    Incoterm    // FCA, CPT, EXW
+  quality     String?     // Показатели качества
+  description String?     // Описание
+  minParty    String?     // Мин. партия
+  paymentTerms String?    // Условия оплаты
+
+  // Sample
+  sampleAvailable Boolean @default(false)
+  sampleAddress   String?
+  sampleViaRugrain Boolean @default(false)
+
+  status      ListingStatus @default(DRAFT)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  favorites   Favorite[]
+  requests    Request[]
+  deals       Deal[]
+
+  @@map("listings")
+}
+
+enum DealType {
+  SELL
+  BUY
+}
+
+enum Incoterm {
+  FCA
+  CPT
+  EXW
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  REJECTED
+  CLOSED
+}
+
+// Auctions
+model Auction {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  category    String
+  dealType    DealType    // SELL (на повышение) или BUY (на понижение)
+  volume      Int
+  startPrice  Int         // Стартовая цена
+  currentPrice Int        // Текущая цена
+  step        Int         // Шаг ставки
+  endsAt      DateTime    // Время окончания
+
+  region      String
+  shipAddress String
+  incoterm    Incoterm
+  quality     String?
+  description String?
+
+  sampleAvailable Boolean @default(false)
+  sampleAddress   String?
+  sampleViaRugrain Boolean @default(false)
+
+  status      AuctionStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bids        Bid[]
+  deals       Deal[]
+
+  @@map("auctions")
+}
+
+enum AuctionStatus {
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+// Bids
+model Bid {
+  id        String   @id @default(uuid())
+  auctionId String
+  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Int      // Сумма ставки
+  createdAt DateTime @default(now())
+
+  @@map("bids")
+}
+
+// Requests (sample + offer + bid)
+model Request {
+  id          String        @id @default(uuid())
+  senderId    String
+  sender      User          @relation("RequestSender", fields: [senderId], references: [id])
+  receiverId  String
+  receiver    User          @relation("RequestReceiver", fields: [receiverId], references: [id])
+
+  type        RequestType   // SAMPLE, OFFER, BID
+  listingId   String?
+  listing     Listing?      @relation(fields: [listingId], references: [id])
+  auctionId   String?
+
+  detail      String        // Детали заявки
+  address     String?       // Адрес доставки (для пробы)
+  method      String?       // Способ доставки
+
+  status      RequestStatus @default(NEW)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("requests")
+}
+
+enum RequestType {
+  SAMPLE
+  OFFER
+  BID
+}
+
+enum RequestStatus {
+  NEW
+  APPROVED
+  REJECTED
+}
+
+// Deals
+model Deal {
+  id          String   @id @default(uuid())
+  listingId   String?
+  listing     Listing? @relation(fields: [listingId], references: [id])
+  auctionId   String?
+  auction     Auction? @relation(fields: [auctionId], references: [id])
+
+  buyerId     String
+  sellerId    String
+  amount      Int      // Сумма сделки
+  commission  Int      // Комиссия платформы
+  isPaid      Boolean  @default(false)
+  status      DealStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@map("deals")
+}
+
+enum DealStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+// ERP Items
+model ErpItem {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  category    String
+  quantity    Int       // Количество
+  unit        String    @default("т")
+  warehouse   String    // Склад
+  sellPrice   Int?      // Цена продажи
+  buyPrice    Int?      // Цена закупки
+  quality     String?   // Показатели качества
+  status      ErpStatus @default(IN_STOCK)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("erp_items")
+}
+
+enum ErpStatus {
+  IN_STOCK
+  LOW
+  RESERVED
+  SOLD
+}
+
+// Favorites
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  auctionId String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId, auctionId])
+  @@map("favorites")
+}
+
+// Ratings
+model Rating {
+  id          String   @id @default(uuid())
+  giverId     String
+  giver       User     @relation("RatingGiver", fields: [giverId], references: [id])
+  receiverId  String
+  receiver    User     @relation("RatingReceiver", fields: [receiverId], references: [id])
+  dealId      String
+  score       Int      // 1-5
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  @@map("ratings")
+}
+
+// Contragent Checks (FNS)
+model ContragentCheck {
+  id        String   @id @default(uuid())
+  userId    String
+  inn       String
+  name      String?
+  ogrn      String?
+  status    String?  // Действующая/ликвидирована
+  region    String?
+  since     String?
+  risk      String?  // низкий/средний/высокий
+  rawData   Json?    // Сырые данные от API
+  createdAt DateTime @default(now())
+
+  @@map("contragent_checks")
+}
