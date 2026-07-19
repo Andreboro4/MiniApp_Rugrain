@@ -4,9 +4,11 @@ import { useStore } from '../store/useStore';
 import { MOCK_INN, fmt } from '../data/mock';
 import Icon from '../components/Icon';
 import { DealTag } from '../components/Bits';
+import CreateListingSheet from '../components/CreateListingSheet';
 
 const SUBTABS = [
   { id: 'profile', label: 'Профиль', icon: 'user' },
+  { id: 'listings', label: 'Мои объявления', icon: 'store' },
   { id: 'orgdetails', label: 'Реквизиты', icon: 'building' },
   { id: 'verify', label: 'Верификация', icon: 'shield' },
   { id: 'contragent', label: 'Контрагент', icon: 'building' },
@@ -49,6 +51,7 @@ export default function CabinetPage() {
       </div>
       <div className="content">
         {sub === 'profile' && <ProfileSub dealsTotal={dealsTotal} />}
+        {sub === 'listings' && <MyListingsSub />}
         {sub === 'orgdetails' && <OrgDetailsSub />}
         {sub === 'verify' && <VerifySub />}
         {sub === 'contragent' && <ContragentSub />}
@@ -296,6 +299,73 @@ function ErpAddSheet({ onClose, onSubmit }) {
         <button className="btn btn-primary btn-block" onClick={submit}><Icon name="check" /> Добавить</button>
       </div>
     </div>
+  );
+}
+
+const STATUS_LABEL = {
+  DRAFT: ['gray', 'Черновик'],
+  PENDING: ['gold', 'На модерации'],
+  PUBLISHED: ['green', 'Опубликовано'],
+  REJECTED: ['red', 'Отклонено'],
+  CLOSED: ['gray', 'Снято с публикации'],
+};
+
+function MyListingsSub() {
+  const navigate = useNavigate();
+  const { ownListings, ownListingsLoading, ownListingsError, fetchOwnListings, removeOwnListing } = useStore();
+  const [editing, setEditing] = useState(null);
+
+  useEffect(() => {
+    fetchOwnListings();
+  }, []);
+
+  return (
+    <>
+      <div className="sec-title">Мои объявления</div>
+      {ownListingsLoading && <div className="empty">Загрузка…</div>}
+      {ownListingsError && <div className="empty">{ownListingsError}</div>}
+      {!ownListingsLoading && !ownListingsError && ownListings.length === 0 && (
+        <div className="empty">Пока нет объявлений — создайте первое на бирже (кнопка «+»)</div>
+      )}
+      {ownListings.map((l) => {
+        const [cls, label] = STATUS_LABEL[l.status] || ['gray', l.status];
+        return (
+          <div className="card" key={l.id}>
+            <div className="card-top">
+              <div>
+                <div className="card-tags"><DealTag dealType={l.dealType} /><span className="tag cat">{l.cat}</span></div>
+                <div className="card-title">{l.title}</div>
+              </div>
+              <span className={`pill ${cls}`}>{label}</span>
+            </div>
+            <div className="card-meta"><div>Объём: <b>{l.vol}</b></div><div>{l.region}</div></div>
+            <div className="card-price">{fmt(l.price)} ₽<span> / {l.unit}</span></div>
+            <div className="btn-row">
+              <button className="btn btn-outline btn-sm" onClick={() => navigate(`/market/${l.id}`)}>Просмотр</button>
+              <button className="btn btn-outline btn-sm" onClick={() => setEditing(l)}>Редактировать</button>
+              {l.status !== 'CLOSED' && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ background: 'var(--red-pale)', color: '#B91C1C' }}
+                  onClick={() => {
+                    if (window.confirm(`Убрать «${l.title}» с публикации?`)) removeOwnListing(l.id);
+                  }}
+                >
+                  Убрать
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {editing && (
+        <CreateListingSheet
+          listing={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => fetchOwnListings()}
+        />
+      )}
+    </>
   );
 }
 

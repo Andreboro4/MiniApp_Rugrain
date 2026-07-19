@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const { authMiddleware } = require('../middleware/auth');
 
 const DEAL_TYPE_MAP = { sell: 'SELL', buy: 'BUY' };
+const EDITABLE_STATUSES = ['DRAFT', 'PENDING', 'PUBLISHED', 'CLOSED'];
 
 const listingInclude = {
   user: {
@@ -46,8 +47,21 @@ function serializeListing(listing) {
   };
 }
 
+async function loadOwnedListingOr403(request, reply) {
+  const existing = await prisma.listing.findUnique({ where: { id: request.params.id } });
+  if (!existing) {
+    reply.code(404).send({ error: 'Объявление не найдено' });
+    return null;
+  }
+  if (existing.userId !== request.user.id) {
+    reply.code(403).send({ error: 'Это не ваше объявление' });
+    return null;
+  }
+  return existing;
+}
+
 module.exports = async function (fastify, opts) {
-  // GET /api/listings?category=Зерновые&dealType=sell
+  // GET /api/listings?category=Зерновые&dealType=sell — публичная лента
   fastify.get('/', async (request, reply) => {
     const { category, dealType } = request.query || {};
 
@@ -63,6 +77,17 @@ module.exports = async function (fastify, opts) {
       orderBy: { createdAt: 'desc' },
     });
 
+    return { listings: listings.map(serializeListing) };
+  });
+
+  // GET /api/listings/mine — все свои объявления, в любом статусе (для личного кабинета).
+  // Регистрируется как отдельный статический путь — Fastify отдаёт ему приоритет над /:id.
+  fastify.get('/mine', { preHandler: authMiddleware }, async (request, reply) => {
+    const listings = await prisma.listing.findMany({
+      where: { userId: request.user.id },
+      include: listingInclude,
+      orderBy: { createdAt: 'desc' },
+    });
     return { listings: listings.map(serializeListing) };
   });
 
@@ -110,5 +135,54 @@ module.exports = async function (fastify, opts) {
     });
 
     return reply.code(201).send({ listing: serializeListing(listing) });
+  });
+
+  // PATCH /api/listings/:id — редактировать своё объявление (нужна авторизация + владение)
+  fastify.patch('/:id', { preHandler: authMiddleware }, async (request, reply) => {
+    const existing = await loadOwnedListingOr403(request, reply);
+    if (!existing) return; // ответ уже отправлен в loadOwnedListingOr403
+
+    const b = request.body || {};
+    const data = {};
+    if (b.title !== undefined) data.title = b.title;
+    if (b.category !== undefined) data.category = b.category;
+    if (b.dealType !== undefined) data.dealType = DEAL_TYPE_MAP[b.dealType] || b.dealType;
+    if (b.volume !== undefined) data.volume = Number(b.volume);
+    if (b.price !== undefined) data.price = Number(b.price);
+    if (b.unit !== undefined) data.unit = b.unit;
+    if (b.region !== undefined) data.region = b.region;
+    if (b.shipAddress !== undefined) data.shipAddress = b.shipAddress;
+    if (b.incoterm !== undefined) data.incoterm = b.incoterm;
+    if (b.quality !== undefined) data.quality = b.quality || null;
+    if (b.description !== undefined) data.description = b.description || null;
+    if (b.minParty !== undefined) data.minParty = b.minParty || null;
+    if (b.paymentTerms !== undefined) data.paymentTerms = b.paymentTerms || null;
+    if (b.sampleAvailable !== undefined) data.sampleAvailable = !!b.sampleAvailable;
+    if (b.samplePickupAddress !== undefined) data.sampleAddress = b.samplePickupAddress || null;
+    if (b.sampleViaRugrain !== undefined) data.sampleViaRugrain = !!b.sampleViaRugrain;
+    // Позволяем самому продавцу снять объявление с публикации или вернуть его обратно.
+    if (b.status !== undefined && EDITABLE_STATUSES.includes(b.status)) data.status = b.status;
+
+    const updated = await prisma.listing.update({
+      where: { id: existing.id },
+      data,
+      include: listingInclude,
+    });
+    return { listing: serializeListing(updated) };
+  });
+
+  // DELETE /api/listings/:id — снять объявление с публикации.
+  // Это мягкое удаление (status -> CLOSED), а не физическое: на объявление в будущем
+  // могут ссылаться заявки/сделки, а GET /api/listings и так скрывает CLOSED из общей ленты.
+  fastify.delete('/:id', { preHandler: authMiddleware }, async (request, reply) => {
+    const existing = await loadOwnedListingOr403(request, reply);
+    if (!existing) return;
+
+    const updated = await prisma.listing.update({
+      where: { id: existing.id },
+      data: { status: 'CLOSED' },
+      include: listingInclude,
+    });
+    return { listing: serializeListing(updated) };
   });
 };

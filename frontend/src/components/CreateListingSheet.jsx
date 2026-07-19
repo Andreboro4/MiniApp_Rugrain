@@ -1,30 +1,33 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
-import { createListing } from '../api/listings';
+import { createListing, updateListing } from '../api/listings';
 import { CATS } from '../data/mock';
 import Icon from './Icon';
 
 const INCOTERMS = ['FCA', 'CPT', 'EXW'];
 const CATEGORIES = CATS.filter((c) => c !== 'Все');
 
-export default function CreateListingSheet({ onClose }) {
+// Одна и та же форма используется и для создания нового объявления, и для
+// редактирования своего — передайте `listing`, чтобы открыть её в режиме редактирования.
+export default function CreateListingSheet({ listing, onClose, onSaved }) {
+  const isEdit = !!listing;
   const { requireOrgDetails, fetchListings, showToast } = useStore();
 
-  const [dealType, setDealType] = useState('sell');
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState(CATEGORIES[0]);
-  const [volume, setVolume] = useState('');
-  const [price, setPrice] = useState('');
-  const [region, setRegion] = useState('');
-  const [shipAddress, setShipAddress] = useState('');
-  const [incoterm, setIncoterm] = useState('FCA');
-  const [quality, setQuality] = useState('');
-  const [minParty, setMinParty] = useState('');
-  const [description, setDescription] = useState('');
+  const [dealType, setDealType] = useState(listing?.dealType || 'sell');
+  const [title, setTitle] = useState(listing?.title || '');
+  const [category, setCategory] = useState(listing?.cat || CATEGORIES[0]);
+  const [volume, setVolume] = useState(listing ? String(parseInt(listing.vol, 10) || '') : '');
+  const [price, setPrice] = useState(listing ? String(listing.price) : '');
+  const [region, setRegion] = useState(listing?.region || '');
+  const [shipAddress, setShipAddress] = useState(listing?.shipAddress || '');
+  const [incoterm, setIncoterm] = useState(listing?.incoterm || 'FCA');
+  const [quality, setQuality] = useState(listing?.quality || '');
+  const [minParty, setMinParty] = useState(listing?.minParty || '');
+  const [description, setDescription] = useState(listing?.desc || '');
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit() {
-    if (!requireOrgDetails('создать объявление')) {
+    if (!isEdit && !requireOrgDetails('создать объявление')) {
       onClose();
       return;
     }
@@ -33,26 +36,34 @@ export default function CreateListingSheet({ onClose }) {
       return;
     }
 
+    const payload = {
+      title,
+      category,
+      dealType,
+      volume: Number(volume),
+      price: Number(price),
+      region,
+      shipAddress,
+      incoterm,
+      quality: quality || undefined,
+      minParty: minParty || undefined,
+      description: description || undefined,
+    };
+
     setSubmitting(true);
     try {
-      await createListing({
-        title,
-        category,
-        dealType,
-        volume: Number(volume),
-        price: Number(price),
-        region,
-        shipAddress,
-        incoterm,
-        quality: quality || undefined,
-        minParty: minParty || undefined,
-        description: description || undefined,
-      });
-      showToast('Объявление создано и отправлено на модерацию');
+      if (isEdit) {
+        await updateListing(listing.id, payload);
+        showToast('Изменения сохранены');
+      } else {
+        await createListing(payload);
+        showToast('Объявление создано и отправлено на модерацию');
+      }
       await fetchListings();
+      onSaved?.();
       onClose();
     } catch (e) {
-      showToast(e?.response?.data?.error || 'Не удалось создать объявление — проверьте backend');
+      showToast(e?.response?.data?.error || 'Не удалось сохранить объявление — проверьте backend');
     } finally {
       setSubmitting(false);
     }
@@ -62,7 +73,7 @@ export default function CreateListingSheet({ onClose }) {
     <div className="overlay show" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" />
-        <div className="sheet-title">Новое объявление</div>
+        <div className="sheet-title">{isEdit ? 'Редактировать объявление' : 'Новое объявление'}</div>
 
         <div className="seg-row">
           <div className={`seg-opt ${dealType === 'sell' ? 'active' : ''}`} onClick={() => setDealType('sell')}>Продажа</div>

@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import Icon from '../components/Icon';
 
@@ -8,10 +10,23 @@ const STATUS_MAP = {
 };
 
 export default function RequestsPage() {
+  const navigate = useNavigate();
   const {
     incoming, outgoing, outgoingBids, reqSub, setReqSub,
     approveRequest, rejectRequest, showDeal, openDeal, closeDealSheet,
+    ownListings, fetchOwnListings,
   } = useStore();
+
+  // Заявки пока не переведены на backend (см. README — /api/requests ещё не реализован),
+  // поэтому связь с объявлением определяем по совпадению названия с реальными объявлениями
+  // пользователя — это временное решение до появления настоящего listingId в заявках.
+  useEffect(() => {
+    if (reqSub === 'incoming') fetchOwnListings();
+  }, [reqSub]);
+
+  function findOwnListing(title) {
+    return ownListings.find((l) => l.title === title);
+  }
 
   const newCount = incoming.filter((r) => r.status === 'new').length;
   const outgoingCombined = [...outgoing, ...outgoingBids];
@@ -44,7 +59,23 @@ export default function RequestsPage() {
               </div>
               <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 2 }}>{who}</div>
               <div className="inbox-detail">
-                {r.listing ? `${r.listing} — ${r.detail}` : r.detail}
+                {r.listing ? (
+                  <>
+                    {reqSub === 'incoming' && findOwnListing(r.listing) ? (
+                      <span
+                        style={{ color: 'var(--green-deep)', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/market/${findOwnListing(r.listing).id}`); }}
+                      >
+                        {r.listing}
+                      </span>
+                    ) : (
+                      r.listing
+                    )}
+                    {' — '}{r.detail}
+                  </>
+                ) : (
+                  r.detail
+                )}
                 <br /><span style={{ fontSize: 10 }}>{r.date}</span>
               </div>
 

@@ -11,7 +11,7 @@ import {
 } from '../data/mock';
 import { getToken, saveToken, clearToken } from '../lib/api';
 import { loginMax as apiLoginMax, loginGuest as apiLoginGuest, fetchMe } from '../api/auth';
-import { fetchListings as apiFetchListings } from '../api/listings';
+import { fetchListings as apiFetchListings, fetchMyListings, updateListing, deleteListing } from '../api/listings';
 
 let toastTimer = null;
 
@@ -103,6 +103,40 @@ export const useStore = create((set, get) => ({
       set({ listings, listingsLoading: false });
     } catch (e) {
       set({ listingsError: 'Не удалось загрузить объявления — проверьте backend и БД', listingsLoading: false });
+    }
+  },
+
+  // ---- собственные объявления пользователя (для «Личный кабинет» → «Мои объявления») ----
+  ownListings: [],
+  ownListingsLoading: false,
+  ownListingsError: null,
+  fetchOwnListings: async () => {
+    set({ ownListingsLoading: true, ownListingsError: null });
+    try {
+      const ownListings = await fetchMyListings();
+      set({ ownListings, ownListingsLoading: false });
+    } catch (e) {
+      set({ ownListingsError: 'Не удалось загрузить ваши объявления — проверьте backend', ownListingsLoading: false });
+    }
+  },
+  updateOwnListing: async (id, payload) => {
+    try {
+      const updated = await updateListing(id, payload);
+      set({ ownListings: get().ownListings.map((l) => (l.id === id ? updated : l)) });
+      get().showToast('Объявление обновлено');
+      return updated;
+    } catch (e) {
+      get().showToast(e?.response?.data?.error || 'Не удалось сохранить изменения');
+      return null;
+    }
+  },
+  removeOwnListing: async (id) => {
+    try {
+      const updated = await deleteListing(id);
+      set({ ownListings: get().ownListings.map((l) => (l.id === id ? updated : l)) });
+      get().showToast('Объявление снято с публикации');
+    } catch (e) {
+      get().showToast(e?.response?.data?.error || 'Не удалось снять объявление');
     }
   },
 

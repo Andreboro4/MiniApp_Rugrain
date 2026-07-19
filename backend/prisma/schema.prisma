@@ -29,7 +29,8 @@ model User {
   erpItems      ErpItem[]
   requestsSent  Request[] @relation("RequestSender")
   requestsRecv  Request[] @relation("RequestReceiver")
-  deals         Deal[]
+  dealsAsBuyer  Deal[]    @relation("DealBuyer")
+  dealsAsSeller Deal[]    @relation("DealSeller")
   favorites     Favorite[]
   ratingsGiven  Rating[] @relation("RatingGiver")
   ratingsRecv   Rating[] @relation("RatingReceiver")
@@ -244,7 +245,10 @@ model Deal {
   auction     Auction? @relation(fields: [auctionId], references: [id])
 
   buyerId     String
+  buyer       User     @relation("DealBuyer", fields: [buyerId], references: [id])
   sellerId    String
+  seller      User     @relation("DealSeller", fields: [sellerId], references: [id])
+  
   amount      Int      // Сумма сделки
   commission  Int      // Комиссия платформы
   isPaid      Boolean  @default(false)
